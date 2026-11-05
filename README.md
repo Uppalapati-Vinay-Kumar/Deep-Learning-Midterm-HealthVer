@@ -1,4 +1,4 @@
-# Deep Learning Midterm — Health Claim Verification
+# Deep Learning Midterm - Health Claim Verification
 
 **Project:** Comparative Analysis of Transformer Models for Health Claim Verification: Accuracy, Data Efficiency, and Error Patterns  
 **Course:** Deep Learning (midterm, October 2026)
@@ -33,14 +33,14 @@ An interesting finding was that SciBERT's lowest development cross-entropy loss 
 
 ## Repository structure
 
-- `Midterm_Adv_Deep_Learning.ipynb` — the complete annotated Colab notebook, including saved outputs
-- `results/all_results.csv` — summary metrics from all nine experiments
-- `results/history_*.csv` — epoch-by-epoch histories for the six transformer runs
-- `results/experiment_config.json` — recorded hyperparameters and environment
-- `results/dataset_sha256.csv` — checksums of the downloaded dataset files
-- `figures/` — plots created from the saved experimental results
-- `report/HealthVer_Midterm_Report.tex` — LaTeX report source; submit the compiled report PDF separately
-- `requirements.txt` — primary Python dependencies
+- `Midterm_Adv_Deep_Learning.ipynb` - the complete annotated Colab notebook, including saved outputs
+- `results/all_results.csv` - summary metrics from all nine experiments
+- `results/history_*.csv` - epoch-by-epoch histories for the six transformer runs
+- `results/experiment_config.json` - recorded hyperparameters and environment
+- `results/dataset_sha256.csv` - checksums of the downloaded dataset files
+- `figures/` - plots created from the saved experimental results
+- `report/HealthVer_Midterm_Report.tex` - LaTeX report source; submit the compiled report PDF separately
+- `requirements.txt` - primary Python dependencies
 
 ## Running the notebook
 
