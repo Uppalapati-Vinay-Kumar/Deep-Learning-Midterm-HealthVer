@@ -1,0 +1,16 @@
+# Downloaded data, cache, and model weights (large files)
+**/official_data/
+**/checkpoint_*/
+**/smoke_test/
+**/final_results/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.joblib
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
+*.aux
+*.log
+*.out
