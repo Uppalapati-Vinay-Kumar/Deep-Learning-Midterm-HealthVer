@@ -1,0 +1,4 @@
+split,file,sha256
+train,healthver_train.csv,57668949f79d0f46e66d74df4b0bc9812cad4d5ad7c5dd03dfba008a608b3f2a
+dev,healthver_dev.csv,6f8ea31cbcf2ea5a2d3c82d65587d66e96de4f70e72642bbf7f61fec6ef8a93a
+test,healthver_test.csv,cf457d2dcddd7a736408082d0037527884f7ca3bda06729e1da5ec9e3b135819

@@ -1,0 +1,35 @@
+{
+  "seed": 42,
+  "smoke_test": false,
+  "epochs": 3,
+  "max_length": 256,
+  "train_batch_size": 8,
+  "gradient_accumulation_steps": 2,
+  "effective_training_batch_size": 16,
+  "learning_rate": 2e-05,
+  "weight_decay": 0.01,
+  "fractions": [
+    0.25,
+    0.5,
+    1.0
+  ],
+  "models": {
+    "SciBERT": "allenai/scibert_scivocab_uncased",
+    "DistilBERT": "distilbert/distilbert-base-uncased"
+  },
+  "label_to_id": {
+    "SUPPORT": 0,
+    "REFUTE": 1,
+    "NEUTRAL": 2
+  },
+  "split_files": {
+    "train": "healthver_train.csv",
+    "dev": "healthver_dev.csv",
+    "test": "healthver_test.csv"
+  },
+  "pytorch": "2.11.0+cu130",
+  "transformers": "4.57.6",
+  "device": "Tesla T4",
+  "selection_metric": "development macro_f1",
+  "test_split": "official test; unchanged"
+}
