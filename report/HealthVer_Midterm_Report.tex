@@ -8,8 +8,6 @@
 \usepackage{graphicx,float}
 \usepackage{tikz}
 \usetikzlibrary{positioning,arrows.meta}
-\usepackage{pgfplots}
-\pgfplotsset{compat=1.18}
 \usepackage{xcolor,hyperref,caption,fancyhdr,enumitem,listings}
 \definecolor{navy}{HTML}{233B55}
 \definecolor{teal}{HTML}{147D81}
@@ -39,20 +37,18 @@
 \end{center}
 \hrule\vspace{6pt}
 
-\noindent\textbf{Project summary.} For this midterm, I wanted to understand how a modern transformer works in an actual classification task rather than only reading about its layers and equations. I fine-tuned SciBERT and DistilBERT on HealthVer, a dataset of scientific evidence paired with health-related claims, and compared them with TF-IDF and Logistic Regression baselines. I also tested whether results changed when I used 25\%, 50\%, or 100\% of the available training data. My strongest model was SciBERT trained on the full dataset, with \textbf{76.14\% accuracy} and \textbf{0.7475 Macro-F1} on the held-out test set. The most interesting discovery for me was that training loss kept getting smaller even when validation results stopped improving.
+\noindent\textbf{Project summary.} For this midterm, I fine-tuned SciBERT and DistilBERT on HealthVer to classify whether scientific evidence supports, refutes, or is neutral toward a health claim. I compared them with a TF-IDF + Logistic Regression baseline and tested 25\%, 50\%, and 100\% of the training data. SciBERT performed best, reaching \textbf{76.14\% accuracy} and \textbf{0.7475 Macro-F1} on the test set. The experiments also showed how training loss can keep decreasing even when development performance stops improving.
 
 \section{Introduction: What I Wanted to Learn}
-The main question in my project was whether the scientific evidence supplied with a claim \textbf{supports}, \textbf{refutes}, or is \textbf{neutral} toward the claim. For example, a claim may say that a treatment works, while an evidence passage reports the outcome of a study. The model has to decide the relationship between the two passages. It is important to remember that this does not establish the medical truth of a claim on its own. The model is classifying the \emph{given claim-evidence pair}.
+My project examines whether a piece of evidence \textbf{supports}, \textbf{refutes}, or is \textbf{neutral} toward a health-related claim. The model must judge the relationship between the two texts, not establish whether the claim is medically true in every context.
 
-I chose this problem because it makes good use of a transformer. The model has to read two pieces of text and understand how they relate. I used the public HealthVer dataset, originally published by Sarrouti and colleagues \cite{sarrouti}. SciBERT was my main architecture because it follows BERT's encoder design but was pretrained on scientific text \cite{beltagy}. I also wanted a smaller deep learning comparison, so I chose DistilBERT, and I included a simpler machine-learning baseline to check whether the transformer was really helping.
-
-I did not build a language model from scratch or claim to have invented a new architecture. My goal was to analyze a modern open-source model, learn how its parts work, train it for my task, and interpret the experiments. The original HealthVer team had already evaluated SciBERT, so my contribution to this class project is the controlled comparison and my analysis, not a new state-of-the-art method.
+I chose HealthVer \cite{sarrouti} because it provides labeled claim-evidence pairs for this task. SciBERT was my main model because it uses BERT's encoder architecture and was pretrained on scientific text \cite{beltagy}. I also fine-tuned the smaller DistilBERT model and trained a traditional machine-learning baseline. My aim was to study the architecture in a working system, compare its performance, and interpret the results. Since the HealthVer researchers had already evaluated SciBERT, I treated this as a controlled class experiment rather than a new research method.
 
 \section{Dataset Preparation}
 \subsection{What the dataset looks like}
-HealthVer contains \textbf{14,330} annotated claim-evidence pairs, mainly connected with COVID-19 questions \cite{sarrouti}. The official files have fields such as \texttt{id}, \texttt{claim}, \texttt{evidence}, \texttt{label}, \texttt{question}, and \texttt{topic\_ip}. I used the claim and evidence as model inputs and the label as the answer to learn. I converted the original text labels into the following IDs: SUPPORT = 0, REFUTE = 1, NEUTRAL = 2. In this setting, NEUTRAL means the particular evidence does not establish support or refutation. It is not a general statement that the claim is false.
+HealthVer contains \textbf{14,330} claim-evidence pairs, mainly related to COVID-19 questions \cite{sarrouti}. I used the \texttt{claim} and \texttt{evidence} fields as inputs and \texttt{label} as the target. Labels were mapped to SUPPORT = 0, REFUTE = 1, and NEUTRAL = 2. NEUTRAL means that the supplied evidence does not establish support or refutation, it does not mean the claim is false.
 
-My notebook loaded the official train, development, and test CSV files. It checked for missing values, removed empty texts if present, stripped spaces, and made the label spellings consistent. In the saved dataset no rows were removed by these checks. I kept the official splits separate instead of randomly mixing the files together.
+I loaded the official train, development, and test files. The notebook checked for missing or empty text, removed surrounding spaces, and standardized labels. These checks removed no rows. I kept the original splits separate.
 
 \begin{table}[H]
 \centering\small
@@ -66,27 +62,26 @@ Total & 4,986 & 3,227 & 6,117 & 14,330\\\bottomrule
 \end{tabular}
 \end{table}
 
-The training set was used to update the weights. I used the development set to choose the best model checkpoint after each epoch, and the test set to report final performance. I learned why these roles need to be separated: if I repeatedly choose a model based on the test data, then it is no longer a fair final evaluation. I also noticed that REFUTE is smaller than the other classes. This is one reason I included Macro-F1 instead of reporting only accuracy.
+I used training data to update model weights, development data to select checkpoints, and the test set for final reporting. The REFUTE class has fewer examples than the other two classes, so I included Macro-F1 rather than relying on accuracy alone.
 
 \subsection{How the model receives text}
-A transformer does not take raw sentences directly. The tokenizer turns the claim and evidence into smaller units called \emph{tokens}, and each token becomes a numerical ID. For SciBERT, the combined input has the general form
+SciBERT's tokenizer converts the claim and evidence into subword tokens and numerical IDs. The combined input has the form
+
 \[
 [\mathrm{CLS}]\quad\mathrm{claim}\quad[\mathrm{SEP}]\quad\mathrm{evidence}\quad[\mathrm{SEP}].
 \]
-The \texttt{[CLS]} token provides a representation used for classification, and \texttt{[SEP]} separates the two texts. The tokenizer also creates an \emph{attention mask} so the model can tell actual tokens from padding. I set a maximum of \textbf{256 tokens} for the combined pair. The notebook used dynamic padding, where each batch is padded only to its longest example (with a multiple-of-eight setting for efficient GPU use). Text longer than the limit was truncated, which can possibly remove useful evidence.
+The \texttt{[CLS]} token is used for classification, and \texttt{[SEP]} marks the boundaries between texts. An attention mask distinguishes real tokens from padding. I limited the combined input to \textbf{256 tokens} and used dynamic padding within each batch. Longer pairs were truncated, potentially removing relevant evidence.
 
-When examining SciBERT's tokenization output, I observed how specialized medical terms such as hydroxychloroquine were represented using multiple subword tokens. This was particularly relevant because scientific terminology can be uncommon in general-purpose language models, and the resulting tokenization affects how text is represented during classification.
-
-For the Logistic Regression baseline I did something different. I joined the claim and evidence into one string and converted the text to TF-IDF features, using single words and pairs of words. This gives the baseline information about word patterns without the contextual self-attention used in transformers.
+When inspecting the input, I noticed that a term such as \emph{hydroxychloroquine} was split into several subword tokens. This matters because tokenization determines the units the model uses to represent scientific terms. For the TF-IDF baseline, I joined the claim and evidence and used unigram and bigram features instead of contextual embeddings.
 
 \subsection{Why I created three training sizes}
-To test data efficiency, I made class-stratified training subsets of \textbf{25\%, 50\%, and 100\%}. They contained 2,647, 5,295, and 10,590 examples respectively. The 25\% subset was included inside the 50\% subset, and both were included in the full training set. The development set of 1,917 examples and test set of 1,823 examples stayed unchanged. This let me ask a simple question: how much does the model gain when it receives more labeled examples?
+To examine data efficiency, I prepared class-stratified training subsets of \textbf{25\%, 50\%, and 100\%} containing 2,647, 5,295, and 10,590 examples. The smaller subsets were nested within the larger ones. Development (1,917 examples) and test (1,823 examples) sets stayed unchanged, allowing a consistent comparison as training data increased.
 
 \section{Understanding the Transformer Architecture}
 \subsection{SciBERT from input to prediction}
-SciBERT follows the BERT-base encoder structure. The model loaded in my notebook had \textbf{12 encoder layers}, \textbf{12 attention heads} per layer, a \textbf{768-dimensional hidden representation}, and approximately \textbf{109.9 million parameters} including the classification part. The Transformer was introduced by Vaswani and colleagues, and BERT built a bidirectional language encoder using transformer blocks \cite{vaswani,devlin}. SciBERT adapted this idea to scientific text \cite{beltagy}.
+SciBERT follows the BERT-base encoder design, with \textbf{12 encoder layers}, \textbf{12 attention heads} per layer, a \textbf{768-dimensional hidden representation}, and about \textbf{109.9 million parameters} including the classification head. Transformers introduced attention-based sequence modeling, and BERT developed a bidirectional encoder \cite{vaswani,devlin}, SciBERT adapted BERT to scientific text \cite{beltagy}.
 
-The flow of my classification model is shown below. First, the tokenizer creates IDs and attention masks. These become numerical vectors through embeddings. Then the vectors pass through 12 transformer encoder layers. Finally, a classification layer converts the information into three scores. The model predicts the class with the highest score.
+Working with SciBERT reinforced the encoder-only and decoder-only distinction covered in class. This task needs one classification decision based on both texts, rather than generating a sequence, so a bidirectional encoder is a suitable choice. Token embeddings pass through the encoder layers, and the final classification head produces three scores, as shown below.
 
 \begin{figure}[H]
 \centering
@@ -107,9 +102,7 @@ c/.style={draw=teal,fill=teal!8,rounded corners=3pt,minimum width=10.2cm,minimum
 
 \subsection{Self-Attention and Its Role in Claim Verification}
 
-Self-attention is one of the main components of the transformer architecture. It allows each token to build a contextual representation by considering other tokens in the input sequence. In this project, SciBERT processes the claim and its supporting evidence together, allowing information from both texts to contribute to the final classification.
-
-This is particularly useful for claim verification because the relationship between two statements can depend on small but important differences in wording. For example, a claim may state that a medicine reduces a particular symptom, while the evidence states that the medicine did not reduce that symptom. Although most of the words are similar, the negation changes the meaning. Self-attention provides a mechanism for the model to represent these contextual relationships, although it does not guarantee that every negation or contradiction will be classified correctly.
+Self-attention lets each token build a representation using information from other tokens in the sequence. SciBERT processes the claim and evidence together, so it can consider the relationship between them. For example, \emph{reduces} and \emph{did not reduce} describe different outcomes despite sharing most words. Attention can represent this difference, although it does not guarantee correct classification of every negation.
 
 The scaled dot-product attention mechanism is expressed as:
 
@@ -122,22 +115,19 @@ The scaled dot-product attention mechanism is expressed as:
 \right)V.
 \end{equation}
 
-Here, $Q$, $K$, and $V$ represent the query, key, and value matrices obtained through learned linear transformations of the input representations. The multiplication $QK^\top$ calculates attention scores between tokens, while division by $\sqrt{d_k}$ scales these scores to help maintain stable gradients. The softmax function converts the scores into attention weights, which are then used to compute weighted combinations of the value vectors.
+Here $Q$, $K$, and $V$ are query, key, and value matrices produced by learned projections. The product $QK^\top$ measures token relationships, scaling by $\sqrt{d_k}$ controls score size, and softmax produces weights for combining the value vectors.
 
-SciBERT uses multi-head self-attention, where different attention heads can learn different relationships within the same input. Each encoder layer also includes a feed-forward neural network, residual connections, and layer normalization. These components allow the model to transform contextual information through multiple layers while supporting stable training.
-
-An important connection to the material covered in class is that the attention mechanism is not a fixed set of rules. Its projection matrices are trainable parameters that are updated through backpropagation during fine-tuning. This allows SciBERT to adapt its pretrained representations to the specific task of identifying whether evidence supports, refutes, or is neutral toward a health-related claim.
-
-Although I did not directly visualize individual attention heads, examining how the architecture processes claim-evidence pairs helped me connect the mathematical attention operation with its practical role in classification.
+SciBERT uses multi-head attention, followed by a feed-forward network, residual connections, and layer normalization in each encoder block. These are trainable transformations rather than fixed rules. Fine-tuning updates their weights through backpropagation, connecting the attention mechanism from class to my actual classification task. I did not inspect individual attention maps, so I cannot claim which tokens specific heads focused on.
 
 \subsection{Embeddings and the classification layer}
-Words first become vectors through learned embeddings. Position information helps the model tell where the tokens appear, and token-type information helps SciBERT distinguish the two sections of the input. After the encoder, the classification head turns the contextual representation of the initial token into \textbf{three logits}, one per class. Applying softmax produces scores that add to one, and the largest score gives the predicted label. I would not interpret these scores as medically calibrated probabilities of truth.
+Token IDs are mapped to learned embeddings, while position and token-type embeddings indicate word order and distinguish the two input segments. The contextual \texttt{[CLS]} representation passes to a classification head, which produces three \textbf{logits}. Softmax can turn them into class scores, but these are not necessarily calibrated probabilities of medical truth.
 
-My second transformer, DistilBERT, used \textbf{6 encoder layers}, 12 heads, hidden size 768, and about \textbf{67.0 million parameters}. It is a smaller, general-purpose pretrained model. SciBERT and DistilBERT differ in both training background and model size, so I cannot fairly claim that any score difference is caused only by scientific-domain pretraining. That was an important limitation to recognize in the comparison.
+DistilBERT uses \textbf{6 encoder layers}, 12 attention heads, a 768-dimensional hidden size, and about \textbf{67 million parameters}. Since the two models differ in size and pretraining data, their performance difference cannot be attributed to scientific pretraining alone.
 
 \section{Loss Function and Model Training}
 \subsection{Cross-entropy loss, explained simply}
-This is a three-class classification problem, so my transformer code uses \textbf{cross-entropy loss}. After the model produces three scores and softmax converts them to probabilities, the loss checks how much probability the model assigned to the correct label. For a single example,
+With three mutually exclusive labels, I used \textbf{cross-entropy loss}. It penalizes the model when it assigns low probability to the correct class. For one example,
+
 \begin{equation}
 L=-\sum_{k=1}^{3}\mathbf{1}(y=k)\log(p_k)=-\log(p_y),
 \end{equation}
@@ -145,9 +135,9 @@ where $y$ is the correct label and $p_y$ is the softmax score for that label. Fo
 \begin{equation}
 L_{\mathrm{batch}}=\frac{1}{N}\sum_{i=1}^{N}-\log\bigl(p_{i,y_i}\bigr).
 \end{equation}
-If SUPPORT is the correct label and the model gives it 0.90, the loss is $-\log(0.90)\approx0.105$. If the same model gives the correct label only 0.10, the loss is $-\log(0.10)\approx2.303$. This is an invented numerical illustration, not a measured prediction from my dataset. It helped me see why cross-entropy gives a much larger penalty to confident mistakes.
+For example, if SUPPORT is correct, assigning it probability 0.90 gives a loss of $-\log(0.90)\approx0.105$, while assigning 0.10 gives $-\log(0.10)\approx2.303$. These are illustrative values, not predictions from my dataset. This reinforced why cross-entropy fits classification better than a regression loss such as MSE in this task.
 
-In the actual notebook, I did not write the cross-entropy function myself. The Hugging Face sequence classifier computed it when I passed a batch containing a \texttt{labels} tensor. The loss was available as \texttt{outputs.loss}. This matters because the formula from class is the same basic idea that runs inside the library.
+In my notebook, the Hugging Face classifier returned the loss as \texttt{outputs.loss} when I supplied labels. It handles log-softmax internally, so I passed the logits directly without applying softmax first.
 
 \subsection{Connection to code and backpropagation}
 The following lines are selected from my transformer training code. They are shown without the surrounding data-loader setup:
@@ -160,7 +150,7 @@ optimizer = torch.optim.AdamW(model.parameters(),
 outputs = model(**batch)
 loss = outputs.loss
 \end{lstlisting}
-The first statement loads pretrained transformer weights and creates the three-class classifier. During the \emph{forward pass}, the model produces class scores and loss. During the \emph{backward pass}, PyTorch calculates the gradients using automatic differentiation. Then AdamW uses the gradients to update the parameters. The encoder was not frozen: both the pretrained transformer and new classification head were fine-tuned. I did not calculate gradients by hand, but I can now connect this code to the chain rule, computational graphs, and gradient descent studied in class.
+The code loads pretrained weights and a three-class output head. In the forward pass, the model computes predictions and cross-entropy loss. Backpropagation then calculates parameter gradients, and AdamW uses them to update both the encoder and classification head. This matches the distinction made in class between calculating gradients and using an optimizer to change weights.
 
 \subsection{Training settings I actually used}
 Both transformers were fine-tuned for up to three epochs on a Tesla T4 GPU in Google Colab. My saved settings were as follows:
@@ -185,18 +175,21 @@ Best checkpoint & Highest development Macro-F1\\\bottomrule
 \end{tabular}
 \end{table}
 
-Gradient accumulation helped with GPU memory. Instead of using 16 examples in one large batch, I ran two smaller batches of 8 and accumulated their gradients before updating the weights. The code divided the loss by the accumulation count before calling \texttt{backward()}; the final group in an epoch may contain fewer examples. I also used a warmup and learning-rate schedule. These settings do not guarantee the best possible model, but they make the experiment practical and repeatable.
+Gradient accumulation let me process two batches of 8 before an optimizer update, giving an effective batch size of about 16. I also used learning-rate warmup followed by linear decay. This training setup reinforced the roles of the optimizer and scheduler discussed in class.
 
-For the traditional baseline, I used a TF-IDF vectorizer with unigrams and bigrams (up to 50,000 features) followed by Logistic Regression. It was trained using scikit-learn, not the transformer training loop.
+The training curves later raised a question about overfitting: training loss kept decreasing while development loss rose. This connects to the class discussion of weight decay, dropout, and checkpoint selection. I did not implement patience-based early stopping, I trained for three epochs and kept the checkpoint with the best development Macro-F1.
+
+For the traditional baseline, I used TF-IDF unigrams and bigrams (up to 50,000 features) followed by scikit-learn Logistic Regression.
 
 \section{My Nine Experiments and Results}
 \subsection{Why I used both accuracy and Macro-F1}
-I compared three methods at each of three training sizes, giving \textbf{nine experiments}. For every run, evaluation used the same official test set of 1,823 examples. Accuracy is the number correct divided by all examples. Precision tells us how often a predicted class is correct; recall tells us how much of a true class was found. F1 combines precision and recall:
+I evaluated three methods at three training sizes, giving \textbf{nine experiments}. All used the same 1,823-example test set. Accuracy measures the fraction correct. Precision and recall describe performance for individual labels, and F1 combines the two:
+
 \[
 F1=\frac{2\,\mathrm{Precision}\,\mathrm{Recall}}{\mathrm{Precision}+\mathrm{Recall}},
 \qquad \mathrm{Macro\text{-}F1}=\frac{F1_S+F1_R+F1_N}{3}.
 \]
-Macro-F1 gives all three labels an equal role, which is useful because the dataset is not balanced.
+Macro-F1 averages the three class F1 scores equally, which is useful because their frequencies differ.
 
 \begin{table}[H]
 \centering\small
@@ -218,42 +211,43 @@ TF-IDF + LR & 100\% & 66.43 & 0.6322\\\bottomrule
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.88\linewidth]{../figures/data_efficiency_macro_f1.png}
+    \includegraphics[width=0.88\linewidth]{data_efficiency_macro_f1.png}
     \caption{Comparison of test Macro-F1 scores for SciBERT, DistilBERT, and TF-IDF with Logistic Regression using 25\%, 50\%, and 100\% of the training data.}
     \label{fig:data_efficiency}
 \end{figure}
 
 
-\textbf{My first observation:} all three models performed better with more training data. SciBERT was the best at every fraction. With the full training set, SciBERT's Macro-F1 was about 0.0811 higher than DistilBERT and about 0.1153 higher than Logistic Regression. This supports the value of the pretrained transformer in this particular experiment, but it does not prove it will always win on other datasets.
+All three models improved as training data increased. SciBERT achieved the highest Macro-F1 at every fraction. At 100\%, it exceeded DistilBERT by 0.0811 and Logistic Regression by 0.1153. This shows its advantage in these experiments, although it does not establish that it would perform best on every dataset.
 
 \subsection{Why the loss curves were interesting}
-One interesting finding came from SciBERT's training history using 100\% of the training data. The training loss decreased continuously from Epoch 1 to Epoch 3, while the development loss increased. The lowest development loss occurred at Epoch 1 (0.6811), but the highest development Macro-F1 was achieved at Epoch 2 (0.7222). This was interesting because the two evaluation metrics suggested different best epochs. Since I selected the best checkpoint based on development Macro-F1, the model from Epoch 2 was chosen.
+For SciBERT trained with 100\% of the data, training loss decreased across three epochs, but development loss increased. The lowest development loss was at epoch 1 (0.6811), while the highest development Macro-F1 was at epoch 2 (0.7222). Because checkpoint selection used Macro-F1, I kept epoch 2. The two metrics favored different epochs because cross-entropy uses confidence in the correct label, while F1 depends on final predicted labels.
 
 \begin{table}[H]
 \centering\small
 \caption{Actual SciBERT training history at 100\% training data.}
 \begin{tabular}{@{}rrrr@{}}\toprule
 \textbf{Epoch} & \textbf{Training loss} & \textbf{Development loss} & \textbf{Development Macro-F1}\\\midrule
-1 & 0.7181 & 0.6811 & 0.6778\\
-\textbf{2} & \textbf{0.2986} & \textbf{0.7698} & \textbf{0.7222}\\
+1 & 0.7181 & \textbf{0.6811} & 0.6778\\
+\textbf{2} & 0.2986 & 0.7698 & \textbf{0.7222}\\
 3 & 0.1536 & 0.9406 & 0.7022\\\bottomrule
 \end{tabular}
 \end{table}
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.84\linewidth]{../figures/scibert_100pct_loss_curve.png}
+    \includegraphics[width=0.84\linewidth]{scibert_100pct_loss_curve.png}
     \caption{Training and development loss from the 100\%-data SciBERT run.}
     \label{fig:scibert_loss_curve}
 \end{figure}
 
-An important observation from these experiments was that decreasing training loss did not necessarily lead to better development performance. Although the training loss decreased across all three epochs, the development loss increased, while Macro-F1 reached its highest value at Epoch 2. This illustrates the difference between fitting training examples and generalizing to unseen data.
+This reinforced why fitting the training set more closely does not automatically mean better generalization. Rising development loss may indicate overfitting or increasingly confident mistakes.
 
 \subsection{What the confusion matrix showed}
-The best SciBERT model correctly classified \textbf{1,388 of 1,823} test examples. A confusion matrix helped me see which classes were difficult rather than reporting only one overall score.
+The best SciBERT model correctly classified \textbf{1,388 of 1,823} test examples. I used its confusion matrix to see which labels caused problems.
+
 \begin{table}[H]
 \centering\small
-\caption{SciBERT confusion matrix at 100\% training data. Rows are true labels; columns are predicted labels.}
+\caption{SciBERT confusion matrix at 100\% training data. Rows are true labels, columns are predicted labels.}
 \begin{tabular}{@{}lrrr@{}}\toprule
  & \multicolumn{3}{c}{\textbf{Predicted}}\\\cmidrule(l){2-4}
 \textbf{Actual} & \textbf{SUPPORT} & \textbf{REFUTE} & \textbf{NEUTRAL}\\\midrule
@@ -263,33 +257,26 @@ NEUTRAL & 88 & 49 & \textbf{590}\\\bottomrule
 \end{tabular}
 \end{table}
 
-REFUTE had the lowest class-wise F1, about \textbf{0.6603}, while SUPPORT had 0.7586 and NEUTRAL had 0.8234. There were 92 cases where the true answer was REFUTE but the model predicted SUPPORT, and another 90 in the opposite direction. I learned that a good overall score can hide meaningful class-specific weaknesses. REFUTE also has fewer training examples, but I cannot conclude that imbalance is the only reason for these errors.
-
+REFUTE had the lowest class-wise F1 (\textbf{0.6603}), compared with 0.7586 for SUPPORT and 0.8234 for NEUTRAL. The model confused REFUTE with SUPPORT 92 times and SUPPORT with REFUTE 90 times. REFUTE is less common in training, but these results alone do not establish why it was more difficult.
 
 \section{My Interpretations, Questions, and Discoveries}
 
-\textbf{Observations on tokenization and model architecture.}
-Although I was already familiar with transformer architectures and subword tokenization, implementing SciBERT helped me examine how these components work together in a claim-evidence classification task. One aspect I found particularly relevant was how the claim and evidence are combined into a single input sequence, allowing self-attention to build representations based on information from both texts. I also considered how practical choices, such as the maximum sequence length of 256 tokens, might influence the information available to the model. Comparing this approach with TF-IDF and Logistic Regression highlighted the difference between contextual representations and traditional word-based features.
+\textbf{Tokenization and contextual representation.} I was already familiar with subword tokenization and attention, but implementing SciBERT showed me how practical choices affect this particular task. Combining claim and evidence in one sequence enables contextual interaction, while the 256-token limit may remove information from longer evidence passages. The TF-IDF comparison also made the difference between contextual representations and word-pattern features clearer.
 
-\textbf{Interpretation of the data efficiency experiments.}
-As expected, increasing the amount of training data improved the performance of all three models. However, I found the differences in their learning patterns more interesting than the overall improvement. SciBERT consistently achieved the highest Macro-F1, even when trained on only 25\% of the available data. Its Macro-F1 increased from 0.6437 to 0.7475 when using the full training set. This suggests that pretrained scientific representations can be useful for this task, particularly when labeled data is limited. However, since SciBERT and DistilBERT differ in architecture size and pretraining data, I cannot attribute this advantage entirely to domain-specific pretraining.
+\textbf{What I noticed about data size.} More labeled data helped all three models, which was expected. I found it more interesting that SciBERT remained ahead even with only 25\% of the data. This is consistent with pretrained scientific representations being useful, but the experiment cannot separate the effects of pretraining domain and model size.
 
-\textbf{Observations on training and generalization.}
-One result that stood out was the difference between training loss and development performance. SciBERT's training loss continued decreasing across all three epochs, but its development loss increased. Interestingly, the highest development Macro-F1 occurred at epoch 2, while the lowest development loss occurred at epoch 1. This reinforced the importance of selecting checkpoints based on the evaluation metric most relevant to the task. It also raised the question of whether additional training would improve classification performance or mainly increase the model's confidence without improving generalization.
+\textbf{Training and generalization.} The mismatch between decreasing training loss and increasing development loss was the most useful result for understanding checkpoint selection. It showed why I needed to track development performance instead of assuming that the final training epoch would be best.
 
-\textbf{Analysis of classification errors.}
-The confusion matrix showed that REFUTE was the most difficult class, with a class-wise F1 of approximately 0.6603. I also examined selected misclassified examples to better understand the limitations of the model. For instance, a NEUTRAL claim about UVC wands was paired with evidence discussing alcohol-based sanitizers, but SciBERT predicted REFUTE. In another example, the model predicted SUPPORT for a NEUTRAL claim comparing N95 masks with regular masks, even though the evidence discussed masks more generally. These cases suggest that the model may sometimes associate related medical concepts without sufficiently distinguishing whether the evidence directly addresses the claim. This is an observation from selected examples rather than a conclusion about all prediction errors.
+\textbf{Looking at incorrect predictions.} In the error sample, a NEUTRAL claim about UVC wands was paired with evidence about alcohol-based sanitizers, yet SciBERT predicted REFUTE. It also predicted SUPPORT for a NEUTRAL N95-mask comparison when the evidence discussed masks more generally. I wondered whether the model sometimes responds to related topics without checking whether the evidence addresses the exact claim. These are interpretations of selected examples, not a proven explanation for all errors.
 
-\textbf{Questions and possible improvements.}
-The experiments raised several questions that could be explored further. Would increasing the maximum sequence length improve predictions when important evidence appears later in a passage? Could class balancing or alternative loss functions improve REFUTE classification? Would SciBERT maintain its advantage over DistilBERT across multiple random seeds or on another health-related dataset? Another useful experiment would be to evaluate how the models respond when evidence is incomplete or slightly modified. These experiments were outside the scope of this midterm, but they would help determine whether the observed performance differences are consistent and whether the models are learning meaningful claim-evidence relationships.
-
+\textbf{Questions I would explore next.} Would a longer token limit help when relevant evidence appears near the end? Could changing class balance improve REFUTE? Would several random seeds or a different dataset give similar results? I did not test these possibilities in this midterm.
 
 \section{Limitations and Conclusion}
-The project has limitations. I used one random seed (42), three training epochs, and one fixed set of hyperparameters. I did not perform a full search or evaluate across multiple datasets. There are repeated claim-evidence pairs within the supplied splits: \textbf{700 in training, 198 in development, and 129 in test}. There were also \textbf{9 exact pairs shared between train and development}, although there were \textbf{no exact pairs shared between train and test}. Such repetition may influence evaluation. An additional calculation using only one copy of each exact test pair reduced SciBERT's Macro-F1 from \textbf{0.7475 to 0.7356}, while the deduplicated scores were 0.6474 for DistilBERT and 0.6178 for Logistic Regression. These are recalculations from the saved predictions, not new training runs.
+I used one seed (42), three epochs, and fixed hyperparameters rather than a full search. The supplied data contained \textbf{700 repeated pairs in training, 198 in development, and 129 in test}, plus \textbf{9 exact pairs shared between training and development}, there were no exact pair overlaps between training and test. Recalculating test scores with one copy per identical pair reduced SciBERT's Macro-F1 from 0.7475 to 0.7356, compared with 0.6474 for DistilBERT and 0.6178 for Logistic Regression. These are checks using saved predictions, not retraining results.
 
-HealthVer's original leaderboard already includes a SciBERT result \cite{repo}. I am not claiming that my score beats that published result: comparing scores properly would require checking that the conditions and metrics were exactly the same. Other work on scientific verification studies evidence retrieval and explanations \cite{wadden2020,wadden2022}, while Schuster and colleagues have examined how models respond to subtle changes in evidence \cite{schuster}. My small three-class project did not test those additional capabilities. The project is therefore best understood as a learning and comparison exercise, not a medical decision system or a new research method.
+The official HealthVer leaderboard already reports a SciBERT result \cite{repo}, I do not claim a direct improvement because the evaluation conditions would need to match. Related studies address evidence retrieval, explanations, and robustness \cite{wadden2020,wadden2022,schuster}, which my project did not test. My goal was to analyze a working architecture and compare established methods, not build a medical decision system.
 
-Overall, SciBERT was the strongest of the three methods in my experiments, reaching \textbf{76.14\% accuracy and 0.7475 Macro-F1}. The larger lesson for me was not simply which model won. I now have a better understanding of how embeddings, self-attention, classification heads, cross-entropy loss, backpropagation, AdamW, and model evaluation fit together. The difference between training and validation loss was especially helpful because it showed me why learning from the training set and generalizing to new data are related, but not the same thing.
+Overall, SciBERT performed best in my experiments, with \textbf{76.14\% accuracy and 0.7475 Macro-F1}. More importantly, the project connected embeddings, attention, loss, backpropagation, and evaluation with the behavior of a real model. The training and development curves were a useful reminder that a model can keep fitting its training data without improving on unseen examples.
 
 \section*{Reproducibility Note}
 The implementation used PyTorch, Hugging Face Transformers, scikit-learn, and Google Colab. I used the uploaded notebook \path{Midterm_Adv_Deep_Learning.ipynb}, together with saved predictions, training histories, prepared splits, summary results, and the experiment settings file. The plotted results and numerical tables in this report were taken from those outputs.
